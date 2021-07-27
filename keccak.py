@@ -40,6 +40,9 @@ class Keccakf1600:
     b = 1600
     w = 64  # b/25
     l = 6   # log2(b/25)
+    nr = 24
+    ir = 0
+
 
     def __init__(self, input):
         self.StArr = Keccakf1600_StateArray(input)
@@ -100,7 +103,8 @@ class Keccakf1600:
             for z in range(1, self.w + 1):
                 # Naive implementation that follows FIPS-202
                 # A better approach would be to implement right rotate
-                p = self.StArr.GetBit(x, y, (z-((t+1)*(t+2)//2)) % self.w)
+                offset = (t+1)*(t+2)//2
+                p = self.StArr.GetBit(x, y, (z-offset) % self.w)
                 A_.SetBitTo(x, y, z, p)
 
             #Step 3b
@@ -109,6 +113,30 @@ class Keccakf1600:
             y = ((2*swap) + (3*y)) % 5
             
         self.StArr = A_
+        self.StArr.A = A_.A
+    
+    def PhiAlt(self):
+        # Step 1
+        A_ = copy.deepcopy(self.StArr)
+        A_.A = copy.deepcopy(self.StArr.A)
+
+        # Step 2
+        x = 1
+        y = 0
+
+        # Step 3
+        for t in range(24):
+
+            offset = ((t+1)*(t+2)//2) % self.w
+            A_.A[y][x] = ROR(self.StArr.A[y][x], 64, offset)
+
+            #Step 3b
+            swap = x
+            x = y
+            y = ((2*swap) + (3*y)) % 5
+            
+        self.StArr = A_
+        self.StArr.A = A_.A
 
     def Pi(self):
         A_ = copy.deepcopy(self.StArr)
@@ -121,6 +149,7 @@ class Keccakf1600:
                     A_.SetBitTo(x, y, z, z_)
 
         self.StArr = A_
+        self.StArr.A = A_.A
 
     def Chi(self):
         A_ = copy.deepcopy(self.StArr)
@@ -136,6 +165,7 @@ class Keccakf1600:
                     A_.SetBitTo(x, y, z, z_)
         
         self.StArr = A_
+        self.StArr.A = A_.A
 
     def rc(self, t):
         if t % 255 == 0: return 1
@@ -158,8 +188,33 @@ class Keccakf1600:
 
         return R >> 8
 
+    def Ro(self):
+        A_ = copy.deepcopy(self.StArr)
+        A_.A = copy.deepcopy(self.StArr.A)
+        RC = [0]*self.w
+        for j in range(self.l):
+            RC[2**j - 1] = self.rc(j + 7*self.ir)
+        for z in range(1,self.w + 1):
+            bit = A_.GetBit(0, 0, z)
+            A_.SetBitTo(0, 0, z, bit ^ RC[z - 1])
+        self.StArr = A_
+        self.StArr.A = A_.A
+
+    def __Round(self):
+        self.Theta()
+        self.Phi()
+        self.Phi()
+        self.Chi()
+        self.Ro()
+
+    def Run(self):
+        for i in range(self.nr):
+            self.__Round()
 
 
-def ROR(num, bitlength):
-    bit = num & 1
-    return (num >> 1) | ((bit << bitlength - 1) & 2**(bitlength - 1))
+def ROR(num, bitlength, offset):
+    for i in range(1, offset + 1):
+        bit = num & 1
+        mask = ((bit << bitlength - 1) & 2**(bitlength - 1))
+        num = (num >> 1) | mask
+    return num
